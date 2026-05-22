@@ -28,7 +28,9 @@ RUN git clean -xdf \
   && cmake --install build --config Release
 
 # libs
-RUN ldconfig
+RUN mkdir -p /usr/local/lib64 \
+  && find /opt/llama.cpp/build -type f -name 'lib*.so*' -exec cp {} /usr/local/lib64/ \; \
+  && ldconfig
 
 # helper
 COPY gguf-vram-estimator.py /usr/local/bin/gguf-vram-estimator.py
