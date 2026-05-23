@@ -30,7 +30,7 @@ You can check the containers on DockerHub: [kyuz0/intel-b70-ai-toolboxes](https:
 | :--- | :--- | :--- |
 | `kyuz0/intel-b70-ai-toolboxes:sycl` | Intel oneAPI SYCL | Native Intel backend for llama.cpp. Fastest generation performance, utilizes Level Zero. Requires Intel oneAPI Base Toolkit components installed inside the container. |
 | `kyuz0/intel-b70-ai-toolboxes:vulkan` | Vulkan (Mesa/Intel) | Universal backend for llama.cpp using Vulkan. Recommended for compatibility across different host setups and older Intel hardware. |
-| `kyuz0/intel-b70-vllm-toolbox:dev` | Intel vLLM Scaler | Official Intel vLLM stack optimized for Arc Pro B70, featuring an interactive TUI launcher (`start-vllm`). |
+| `kyuz0/intel-b70-vllm-toolbox:latest` | Intel vLLM Scaler | Official Intel vLLM stack optimized for Arc Pro B70, featuring an interactive TUI launcher (`start-vllm`). |
 
 > The Llama.cpp containers are **automatically** rebuilt whenever the Llama.cpp master branch is updated. The vLLM container can be rebuilt using the provided GitHub action.
 
@@ -59,7 +59,7 @@ toolbox enter b70-llama-sycl
 **Option C: vLLM (Intel Scaler)** - best for high-throughput serving
 ```sh
 toolbox create b70-vllm \
-  --image docker.io/kyuz0/intel-b70-vllm-toolbox:dev \
+  --image docker.io/kyuz0/intel-b70-vllm-toolbox:latest \
   -- --device /dev/dri --shm-size 200g --security-opt seccomp=unconfined --env no_proxy=localhost,127.0.0.1
 
 toolbox enter b70-vllm
