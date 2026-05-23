@@ -2,14 +2,25 @@
 
 This project provides pre-built containers (“toolboxes”) for running LLMs on **Intel Arc B70** (and other modern Intel GPUs) using `llama.cpp` and `vLLM`. Toolbx is the standard developer container system in Fedora (and works on Ubuntu, openSUSE, Arch, etc).
 
+📊 **Interactive Benchmarks:** Live performance results are available at [kyuz0.github.io/intel-b70-ai-toolboxes/](https://kyuz0.github.io/intel-b70-ai-toolboxes/).
+
 ---
 
 ## Table of Contents
 
+- [Interactive Benchmarks](#interactive-benchmarks)
 - [Supported Toolboxes](#supported-toolboxes)
 - [Quick Start](#quick-start)
 - [Host Configuration](#host-configuration)
 - [Building Locally](#building-locally)
+
+## Interactive Benchmarks
+
+Interactive performance benchmark results for different backends, models, and quantization levels running on the Intel Arc B70 GPU are published at:
+
+👉 **[Intel Arc B70 LLM Benchmarks](https://kyuz0.github.io/intel-b70-ai-toolboxes/)**
+
+---
 
 ## Supported Toolboxes
 
