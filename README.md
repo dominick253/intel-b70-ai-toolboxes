@@ -30,6 +30,7 @@ You can check the containers on DockerHub: [kyuz0/intel-b70-ai-toolboxes](https:
 | :--- | :--- | :--- |
 | `kyuz0/intel-b70-ai-toolboxes:sycl` | Intel oneAPI SYCL | Native Intel backend for llama.cpp. Fastest generation performance, utilizes Level Zero. Requires Intel oneAPI Base Toolkit components installed inside the container. |
 | `kyuz0/intel-b70-ai-toolboxes:vulkan` | Vulkan (Mesa/Intel) | Universal backend for llama.cpp using Vulkan. Recommended for compatibility across different host setups and older Intel hardware. |
+| `kyuz0/intel-b70-ai-toolboxes:openvino` | Intel OpenVINO | OpenVINO backend for llama.cpp. Translates GGML graphs into OpenVINO for Intel-optimized inference on CPUs and GPUs. Auto-configured to target the discrete GPU with stateful KV cache. |
 | `kyuz0/intel-b70-vllm-toolbox:latest` | Intel vLLM Scaler | Official Intel vLLM stack optimized for Arc Pro B70, featuring an interactive TUI launcher (`start-vllm`). |
 
 > The Llama.cpp containers are **automatically** rebuilt whenever the Llama.cpp master branch is updated. The vLLM container can be rebuilt using the provided GitHub action.
@@ -56,7 +57,16 @@ toolbox create b70-llama-sycl \
 toolbox enter b70-llama-sycl
 ```
 
-**Option C: vLLM (Intel Scaler)** - best for high-throughput serving
+**Option C: OpenVINO (Intel)** - graph-compiled Intel inference
+```sh
+toolbox create b70-llama-openvino \
+  --image docker.io/kyuz0/intel-b70-ai-toolboxes:openvino \
+  -- --device /dev/dri --group-add video --group-add render --security-opt seccomp=unconfined
+
+toolbox enter b70-llama-openvino
+```
+
+**Option D: vLLM (Intel Scaler)** - best for high-throughput serving
 ```sh
 toolbox create b70-vllm \
   --image docker.io/kyuz0/intel-b70-vllm-toolbox:latest \
@@ -65,7 +75,9 @@ toolbox create b70-vllm \
 toolbox enter b70-vllm
 ```
 
-> **Tip:** You can also use the included `./refresh-toolboxes.sh [all|b70-llama-vulkan|b70-llama-sycl|b70-vllm]` script to automate the container pulling and creation process.
+> **Tip:** You can also use the included `./refresh-toolboxes.sh [all|b70-llama-vulkan|b70-llama-sycl|b70-llama-openvino|b70-vllm]` script to automate the container pulling and creation process.
+
+> **OpenVINO Notes:** The OpenVINO container auto-exports `GGML_OPENVINO_DEVICE=GPU` and `GGML_OPENVINO_STATEFUL_EXECUTION=1` on entry. When benchmarking with `llama-bench`, you **must** pass `-fa 1` (flash attention) — this is an upstream requirement for the OpenVINO backend.
 
 ### 2. Check GPU Access
 Inside the toolbox:

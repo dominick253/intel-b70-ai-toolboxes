@@ -1,0 +1,79 @@
+# build stage
+FROM registry.fedoraproject.org/fedora:43 AS builder
+
+# deps — openvino-devel from Fedora native repos, GPU runtime stack
+RUN dnf -y --nodocs --setopt=install_weak_deps=False \
+  install \
+  make gcc gcc-c++ cmake ninja-build lld clang clang-devel compiler-rt \
+  openvino-devel \
+  intel-compute-runtime intel-level-zero intel-level-zero-devel oneapi-level-zero oneapi-level-zero-devel \
+  ocl-icd ocl-icd-devel opencl-headers \
+  git-core vim sudo rsync patch \
+  && dnf clean all && rm -rf /var/cache/dnf/*
+
+# llama.cpp
+WORKDIR /opt/llama.cpp
+ARG REPO=https://github.com/ggerganov/llama.cpp.git
+ARG BRANCH=master
+RUN git clone -b ${BRANCH} --single-branch --recursive ${REPO} .
+
+# build
+RUN git clean -xdf \
+  && git submodule update --recursive \
+  && cmake -S . -B build -G Ninja \
+  -DGGML_OPENVINO=ON \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DGGML_RPC=ON \
+  -DLLAMA_BUILD_TESTS=OFF \
+  -DLLAMA_BUILD_EXAMPLES=ON \
+  -DLLAMA_BUILD_SERVER=ON \
+  && cmake --build build --config Release \
+  && cmake --install build --config Release
+
+# libs
+RUN mkdir -p /usr/local/lib64 \
+  && find /opt/llama.cpp/build -type f -name 'lib*.so*' -exec cp {} /usr/local/lib64/ \; \
+  && ldconfig
+
+# helper
+COPY gguf-vram-estimator.py /usr/local/bin/gguf-vram-estimator.py
+RUN chmod +x /usr/local/bin/gguf-vram-estimator.py
+
+# runtime stage
+FROM registry.fedoraproject.org/fedora:43
+
+# runtime deps — openvino runtime + GPU drivers
+RUN dnf -y --nodocs --setopt=install_weak_deps=False \
+  install \
+  bash ca-certificates libatomic libstdc++ libgcc sudo hwdata pciutils python3 \
+  openvino \
+  intel-compute-runtime intel-level-zero oneapi-level-zero \
+  ocl-icd clinfo \
+  procps-ng vim rsync \
+  && dnf clean all && rm -rf /var/cache/dnf/*
+
+# copy
+COPY --from=builder /usr/local/ /usr/local/
+
+# ld
+RUN echo "/usr/local/lib"  > /etc/ld.so.conf.d/local.conf \
+  && echo "/usr/local/lib64" >> /etc/ld.so.conf.d/local.conf \
+  && ldconfig \
+  && cp -n /usr/local/lib/lib*.so* /usr/lib64/ 2>/dev/null || true \
+  && cp -n /usr/local/lib64/lib*.so* /usr/lib64/ 2>/dev/null || true \
+  && ldconfig
+
+# helper
+COPY gguf-vram-estimator.py /usr/local/bin/gguf-vram-estimator.py
+RUN chmod +x /usr/local/bin/gguf-vram-estimator.py
+
+# openvino env — target discrete GPU with stateful KV cache by default
+RUN printf '%s\n' \
+  'export GGML_OPENVINO_DEVICE=GPU' \
+  'export GGML_OPENVINO_STATEFUL_EXECUTION=1' \
+  > /etc/profile.d/openvino-llama.sh \
+  && chmod +x /etc/profile.d/openvino-llama.sh \
+  && echo 'source /etc/profile.d/openvino-llama.sh' >> /etc/bashrc
+
+# shell
+CMD ["/bin/bash"]
