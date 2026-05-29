@@ -78,6 +78,8 @@ toolbox enter b70-vllm
 > **Tip:** You can also use the included `./refresh-toolboxes.sh [all|b70-llama-vulkan|b70-llama-sycl|b70-llama-openvino|b70-vllm]` script to automate the container pulling and creation process.
 
 > **OpenVINO Notes:** The OpenVINO container auto-exports `GGML_OPENVINO_DEVICE=GPU` and `GGML_OPENVINO_STATEFUL_EXECUTION=1` on entry. When benchmarking with `llama-bench`, you **must** pass `-fa 1` (flash attention) — this is an upstream requirement for the OpenVINO backend.
+>
+> ⚠️ **VRAM reporting:** `llama-cli --list-devices` will report **system RAM** (~64 GiB) instead of GPU VRAM (32 GiB). This is an upstream llama.cpp limitation — the OpenVINO backend does not query device VRAM. Use `gguf-vram-estimator.py` to check if a model fits in GPU memory before loading.
 
 ### 2. Check GPU Access
 Inside the toolbox:
