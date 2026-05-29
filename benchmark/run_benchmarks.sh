@@ -68,7 +68,6 @@ echo
 declare -A CMDS=(
   [sycl]="toolbox run -c b70-llama-sycl -- env ONEAPI_DEVICE_SELECTOR=level_zero:gpu /usr/local/bin/llama-bench"
   [vulkan]="toolbox run -c b70-llama-vulkan -- env VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/intel_icd.x86_64.json /usr/local/bin/llama-bench"
-  [openvino]="toolbox run -c b70-llama-openvino -- env GGML_OPENVINO_DEVICE=GPU GGML_OPENVINO_STATEFUL_EXECUTION=1 /usr/local/bin/llama-bench"
 )
 
 for MODEL_PATH in "${MODEL_PATHS[@]}"; do
