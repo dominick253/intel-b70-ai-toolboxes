@@ -5,7 +5,7 @@ FROM registry.fedoraproject.org/fedora:43 AS builder
 RUN dnf -y --nodocs --setopt=install_weak_deps=False \
   install \
   make gcc gcc-c++ cmake ninja-build lld clang clang-devel compiler-rt \
-  openvino-devel \
+  openvino-devel tbb-devel openssl-devel \
   intel-compute-runtime intel-level-zero intel-level-zero-devel oneapi-level-zero oneapi-level-zero-devel \
   ocl-icd ocl-icd-devel opencl-headers \
   git-core vim sudo rsync patch \
@@ -16,6 +16,12 @@ WORKDIR /opt/llama.cpp
 ARG REPO=https://github.com/ggerganov/llama.cpp.git
 ARG BRANCH=master
 RUN git clone -b ${BRANCH} --single-branch --recursive ${REPO} .
+
+# Fedora's openvino cmake config expects bundled TBB at a relative
+# ../3rdparty/tbb/ path, but Fedora installs TBB separately.
+# Symlink the system TBB cmake config to where OpenVINO expects it.
+RUN mkdir -p /usr/lib64/cmake/3rdparty/tbb/lib/cmake \
+  && ln -s /usr/lib64/cmake/TBB /usr/lib64/cmake/3rdparty/tbb/lib/cmake/TBB
 
 # build
 RUN git clean -xdf \
