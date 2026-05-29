@@ -1,15 +1,26 @@
 # build stage
 FROM registry.fedoraproject.org/fedora:43 AS builder
 
-# deps — openvino-devel from Fedora native repos, GPU runtime stack
+# OpenVINO archive version — use Intel's official release, not Fedora's
+# stale 2025.1.0 package which has API incompatibilities with current llama.cpp
+ARG OV_ARCHIVE=openvino_toolkit_rhel8_2026.2.0.21903.52ddc073857_x86_64
+ARG OV_URL=https://storage.openvinotoolkit.org/repositories/openvino/packages/2026.2/linux/${OV_ARCHIVE}.tgz
+
+# deps — build tools + GPU runtime stack
 RUN dnf -y --nodocs --setopt=install_weak_deps=False \
   install \
   make gcc gcc-c++ cmake ninja-build lld clang clang-devel compiler-rt \
-  openvino-devel tbb-devel openssl-devel \
   intel-compute-runtime intel-level-zero intel-level-zero-devel oneapi-level-zero oneapi-level-zero-devel \
   ocl-icd ocl-icd-devel opencl-headers \
-  git-core vim sudo rsync patch \
+  openssl-devel tbb-devel \
+  git-core vim sudo rsync patch curl \
   && dnf clean all && rm -rf /var/cache/dnf/*
+
+# download and install OpenVINO from Intel's official archive
+RUN curl -fSL "${OV_URL}" -o /tmp/openvino.tgz \
+  && mkdir -p /opt/intel/openvino \
+  && tar xzf /tmp/openvino.tgz -C /opt/intel/openvino --strip-components=1 \
+  && rm /tmp/openvino.tgz
 
 # llama.cpp
 WORKDIR /opt/llama.cpp
@@ -17,15 +28,10 @@ ARG REPO=https://github.com/ggerganov/llama.cpp.git
 ARG BRANCH=master
 RUN git clone -b ${BRANCH} --single-branch --recursive ${REPO} .
 
-# Fedora's openvino cmake config expects bundled TBB at a relative
-# ../3rdparty/tbb/ path, but Fedora installs TBB separately.
-# Symlink the system TBB cmake config to where OpenVINO expects it.
-RUN mkdir -p /usr/lib64/cmake/3rdparty/tbb/lib/cmake \
-  && ln -s /usr/lib64/cmake/TBB /usr/lib64/cmake/3rdparty/tbb/lib/cmake/TBB
-
-# build
+# build — source setupvars.sh to set OpenVINO cmake/lib paths
 RUN git clean -xdf \
   && git submodule update --recursive \
+  && source /opt/intel/openvino/setupvars.sh \
   && cmake -S . -B build -G Ninja \
   -DGGML_OPENVINO=ON \
   -DCMAKE_BUILD_TYPE=Release \
@@ -48,22 +54,32 @@ RUN chmod +x /usr/local/bin/gguf-vram-estimator.py
 # runtime stage
 FROM registry.fedoraproject.org/fedora:43
 
-# runtime deps — openvino runtime + GPU drivers
+ARG OV_ARCHIVE=openvino_toolkit_rhel8_2026.2.0.21903.52ddc073857_x86_64
+ARG OV_URL=https://storage.openvinotoolkit.org/repositories/openvino/packages/2026.2/linux/${OV_ARCHIVE}.tgz
+
+# runtime deps — GPU drivers + minimal tools
 RUN dnf -y --nodocs --setopt=install_weak_deps=False \
   install \
   bash ca-certificates libatomic libstdc++ libgcc sudo hwdata pciutils python3 \
-  openvino \
+  tbb \
   intel-compute-runtime intel-level-zero oneapi-level-zero \
   ocl-icd clinfo \
-  procps-ng vim rsync \
+  procps-ng vim rsync curl \
   && dnf clean all && rm -rf /var/cache/dnf/*
 
-# copy
+# install OpenVINO runtime from Intel's official archive
+RUN curl -fSL "${OV_URL}" -o /tmp/openvino.tgz \
+  && mkdir -p /opt/intel/openvino \
+  && tar xzf /tmp/openvino.tgz -C /opt/intel/openvino --strip-components=1 \
+  && rm /tmp/openvino.tgz
+
+# copy llama.cpp binaries from builder
 COPY --from=builder /usr/local/ /usr/local/
 
-# ld
+# ld — system libs + OpenVINO runtime libs
 RUN echo "/usr/local/lib"  > /etc/ld.so.conf.d/local.conf \
   && echo "/usr/local/lib64" >> /etc/ld.so.conf.d/local.conf \
+  && echo "/opt/intel/openvino/runtime/lib/intel64" > /etc/ld.so.conf.d/openvino.conf \
   && ldconfig \
   && cp -n /usr/local/lib/lib*.so* /usr/lib64/ 2>/dev/null || true \
   && cp -n /usr/local/lib64/lib*.so* /usr/lib64/ 2>/dev/null || true \
@@ -73,8 +89,9 @@ RUN echo "/usr/local/lib"  > /etc/ld.so.conf.d/local.conf \
 COPY gguf-vram-estimator.py /usr/local/bin/gguf-vram-estimator.py
 RUN chmod +x /usr/local/bin/gguf-vram-estimator.py
 
-# openvino env — target discrete GPU with stateful KV cache by default
+# openvino env — setupvars + GPU device targeting with stateful KV cache
 RUN printf '%s\n' \
+  'source /opt/intel/openvino/setupvars.sh > /dev/null 2>&1' \
   'export GGML_OPENVINO_DEVICE=GPU' \
   'export GGML_OPENVINO_STATEFUL_EXECUTION=1' \
   > /etc/profile.d/openvino-llama.sh \
