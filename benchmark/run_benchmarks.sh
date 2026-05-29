@@ -66,8 +66,8 @@ done
 echo
 
 declare -A CMDS=(
-  [sycl]="toolbox run -c llama-sycl -- env ONEAPI_DEVICE_SELECTOR=level_zero:gpu /usr/local/bin/llama-bench"
-  [vulkan]="toolbox run -c llama-vulkan -- env VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/intel_icd.x86_64.json /usr/local/bin/llama-bench"
+  [sycl]="toolbox run -c b70-llama-sycl -- env ONEAPI_DEVICE_SELECTOR=level_zero:gpu /usr/local/bin/llama-bench"
+  [vulkan]="toolbox run -c b70-llama-vulkan -- env VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/intel_icd.x86_64.json /usr/local/bin/llama-bench"
   [openvino]="toolbox run -c b70-llama-openvino -- env GGML_OPENVINO_DEVICE=GPU GGML_OPENVINO_STATEFUL_EXECUTION=1 /usr/local/bin/llama-bench"
 )
 
@@ -114,7 +114,7 @@ for MODEL_PATH in "${MODEL_PATHS[@]}"; do
         if [[ "$CTX" == longctx32768 ]]; then CTX_NUM=32768; fi
         if [[ "$CTX" == longctx65536 ]]; then CTX_NUM=65536; fi
         
-        EST_GB=$(toolbox run -c llama-sycl -- /usr/local/bin/gguf-vram-estimator.py "$MODEL_PATH" -c $CTX_NUM 2>/dev/null | awk -F '|' '/^[ \t]*[0-9,]+[ \t]*\|/ {print $3}' | awk '{print $1}' | head -n1)
+        EST_GB=$(toolbox run -c b70-llama-sycl -- /usr/local/bin/gguf-vram-estimator.py "$MODEL_PATH" -c $CTX_NUM 2>/dev/null | awk -F '|' '/^[ \t]*[0-9,]+[ \t]*\|/ {print $3}' | awk '{print $1}' | head -n1)
         if [[ -n "$EST_GB" ]]; then
           if (( $(awk -v est="$EST_GB" 'BEGIN {print (est > 31.5) ? 1 : 0}') )); then
             echo "⏭️  Skipping [${ENV}] ${MODEL_NAME}${SUFFIX}${CTX_SUFFIX:+ ($CTX_SUFFIX)}: Est VRAM ${EST_GB} GiB exceeds Intel Arc B70 limits (31.5 GiB max)"
