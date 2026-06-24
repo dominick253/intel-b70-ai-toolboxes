@@ -121,6 +121,10 @@ def get_model_args(model, tp_size, overrides=None):
     if kv_cache_dtype:
         cmd.extend(["--kv-cache-dtype", kv_cache_dtype])
         
+    quantization = overrides.get("quantization", config.get("quantization"))
+    if quantization:
+        cmd.extend(["--quantization", quantization])
+        
     if config.get("trust_remote"): cmd.append("--trust-remote-code")
     use_eager = overrides.get("enforce_eager", config.get("enforce_eager", False))
     if use_eager: cmd.append("--enforce-eager")

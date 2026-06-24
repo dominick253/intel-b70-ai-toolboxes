@@ -4,6 +4,7 @@ import os
 import tempfile
 import subprocess
 import time
+import signal
 from pathlib import Path
 import shutil
 
@@ -34,6 +35,48 @@ def detect_gpus():
     except:
         return 1
 
+def pre_launch_cleanup():
+    """Kill stale vLLM processes, remove old containers, drop caches, clear swap."""
+    # Kill stale vLLM processes
+    try:
+        result = subprocess.run(["pgrep", "-f", "vllm serve"], capture_output=True, text=True)
+        if result.stdout.strip():
+            pids = [p for p in result.stdout.strip().split("\n") if p]
+            print(f"Killing stale vLLM processes: {pids}")
+            for pid in pids:
+                try: os.kill(int(pid), signal.SIGKILL)
+                except: pass
+            time.sleep(2)
+    except Exception:
+        pass
+
+    # Remove old containers
+    try:
+        result = subprocess.run(["podman", "ps", "-aq", "--filter", "name=b70-vllm"], capture_output=True, text=True)
+        if result.stdout.strip():
+            cids = [c for c in result.stdout.strip().split("\n") if c]
+            print(f"Removing stale containers: {cids}")
+            subprocess.run(["podman", "rm", "-f"] + cids, capture_output=True)
+    except Exception:
+        pass
+
+    # Drop caches
+    try:
+        with open("/proc/sys/vm/drop_caches", "w") as f:
+            f.write("3")
+    except Exception:
+        pass
+    subprocess.run(["sync"], capture_output=True)
+
+    # Clear swap (disable + re-enable)
+    try:
+        subprocess.run(["sudo", "swapoff", "--all"], capture_output=True, timeout=10)
+        time.sleep(1)
+        subprocess.run(["sudo", "swapon", "--all"], capture_output=True, timeout=10)
+        print("Swap cleared.")
+    except Exception:
+        pass
+
 def run_dialog(args):
     """Runs dialog and returns stderr (selection)."""
     with tempfile.NamedTemporaryFile(mode="w+") as tf:
@@ -61,11 +104,11 @@ def nuke_vllm_cache():
 def configure_and_launch(model_idx, gpu_count):
     model_id = MODELS_TO_RUN[model_idx]
     config = MODEL_TABLE[model_id]
-    
+
     # Static Config Setup
     valid_tps = config.get("valid_tp", [1])
     max_tp = max(valid_tps) if valid_tps else 1
-    
+
     # Default TP: use as many GPUs as the model supports (up to hardware count)
     current_tp = min(gpu_count, max_tp)
     current_seqs = int(config.get("max_num_seqs", "128"))
@@ -73,19 +116,19 @@ def configure_and_launch(model_idx, gpu_count):
     current_util = float(config.get("gpu_util", GPU_UTIL))
     use_eager = config.get("enforce_eager", True)
     clear_cache = False
-    
+
     name = model_id.split("/")[-1]
-    
+
     while True:
         cache_status = "YES" if clear_cache else "NO"
         eager_status = "YES" if use_eager else "NO"
-        
+
         # Build TP display string with constraint hint
         if max_tp < gpu_count:
             tp_display = f"{current_tp} (max {max_tp} for this model)"
         else:
             tp_display = f"{current_tp}"
-        
+
         menu_args = [
             "--clear", "--backtitle", f"B70 vLLM Launcher (GPUs: {gpu_count} detected)",
             "--title", f"Configuration: {name}",
@@ -98,10 +141,10 @@ def configure_and_launch(model_idx, gpu_count):
             "6", f"Force Eager Mode:     {eager_status}",
             "7", "LAUNCH SERVER"
         ]
-        
+
         choice = run_dialog(menu_args)
         if not choice: return False # Back/Cancel
-        
+
         if choice == "1":
             tp_upper = min(gpu_count, max_tp)
             new_tp = run_dialog(["--title", "Tensor Parallelism", "--rangebox", f"Set TP Size (1-{tp_upper})", "10", "40", "1", str(tp_upper), str(current_tp)])
@@ -121,12 +164,12 @@ def configure_and_launch(model_idx, gpu_count):
             use_eager = not use_eager
         elif choice == "7":
             break
-            
+
     # Build Command
     subprocess.run(["clear"])
     if clear_cache:
         nuke_vllm_cache()
-    
+
     cmd = [
         "vllm", "serve", model_id,
         "--served-model-name", name,
@@ -144,16 +187,18 @@ def configure_and_launch(model_idx, gpu_count):
         "--disable-custom-all-reduce",
         "--allow-deprecated-quantization"
     ]
-    
+
     if config.get("trust_remote"): cmd.append("--trust-remote-code")
+    quantization = config.get("quantization")
+    if quantization: cmd.extend(["--quantization", quantization])
     if use_eager: cmd.append("--enforce-eager")
     if config.get("language_model_only"):
         cmd.extend(["--limit-mm-per-prompt", '{"image": 0, "video": 0}'])
-    
+
     # Env Vars
     env = os.environ.copy()
     env.update(config.get("env", {}))
-    
+
     print("\n" + "="*60)
     print(f" Launching: {name}")
     print(f" Config:    TP={current_tp} | Seqs={current_seqs} | Ctx={current_ctx} | Util={current_util} | Eager={use_eager}")
@@ -161,30 +206,33 @@ def configure_and_launch(model_idx, gpu_count):
         print(f" Action:    Clearing vLLM Cache (~/.cache/vllm)")
     print(f" Command:   {' '.join(cmd)}")
     print("="*60 + "\n")
-    
+
     os.execvpe("vllm", cmd, env)
 
 def main():
     check_dependencies()
     gpu_count = detect_gpus()
-    
+
     while True:
         menu_items = []
         for i, m_id in enumerate(MODELS_TO_RUN):
             name = m_id.split("/")[-1]
             menu_items.extend([str(i), name])
-            
+
         choice = run_dialog([
             "--clear", "--backtitle", f"B70 vLLM Launcher (GPUs: {gpu_count})",
             "--title", "Select Model",
             "--menu", "Choose a model to serve:", "15", "60", "8"
         ] + menu_items)
-        
+
         if not choice:
             subprocess.run(["clear"])
             print("Selection cancelled.")
             sys.exit(0)
-            
+
+        # Run cleanup before each launch to prevent swap/leak buildup
+        pre_launch_cleanup()
+
         configure_and_launch(int(choice), gpu_count)
 
 if __name__ == "__main__":

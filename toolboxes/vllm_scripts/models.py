@@ -79,16 +79,25 @@ MODEL_TABLE = {
         "env": B70_ENV
     },
 
-    # 5. Qwen 3.6 35B-A3B (MoE) -- needs TP=2 for BF16, fits with TP=2 on 2x B70
+    # 5. Qwen 3.6 35B-A3B (MoE) -- FP8 quantized, TP=2 on 2x B70, max context 262144
     "Qwen/Qwen3.6-35B-A3B": {
         "trust_remote": True,
         "valid_tp": [2],
         "max_num_seqs": "32",
-        "max_tokens": "32768",
-        "ctx": "65536",
+        "max_tokens": "262144",
+        "ctx": "262144",
         "language_model_only": True,
+        "quantization": "fp8",
         "gpu_util": "0.90",
-        "env": B70_ENV
+        "enforce_eager": True,
+        "env": {
+            "VLLM_TARGET_DEVICE": "xpu",
+            "ZE_AFFINITY_MASK": "0,1",
+            "VLLM_ALLOW_LONG_MAX_MODEL_LEN": "1",
+            "VLLM_WORKER_MULTIPROC_METHOD": "spawn",
+            "VLLM_OFFLOAD_WEIGHTS_BEFORE_QUANT": "1",
+            "PYTORCH_ALLOC_CONF": "expandable_segments:True"
+        }
     },
 
     # 6. Nemotron-3-Nano-30B-A3B (MoE) -- needs TP=2 for BF16
