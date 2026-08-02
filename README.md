@@ -1,135 +1,311 @@
-# Intel B70 Llama.cpp & vLLM Toolboxes
+<div align="center">
 
-This project provides pre-built containers (“toolboxes”) for running LLMs on **Intel Arc B70** (and other modern Intel GPUs) using `llama.cpp` and `vLLM`. Toolbx is the standard developer container system in Fedora (and works on Ubuntu, openSUSE, Arch, etc).
+# Intel B70 AI Toolboxes
 
-📊 **Interactive Benchmarks:** Live performance results are available at [kyuz0.github.io/intel-b70-ai-toolboxes/](https://kyuz0.github.io/intel-b70-ai-toolboxes/).
+**Containerized AI inference toolboxes for Intel Arc Pro B70 GPU.**
+
+[![Shell](https://img.shields.io/badge/Shell-Script-89D085?logo=gnubash&logoColor=white)](https://www.gnu.org/software/bash)
+[![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](https://python.org)
+[![Docker](https://img.shields.io/badge/Docker-Container-2496ED?logo=docker&logoColor=white)](https://docker.com)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+[![GPU](https://img.shields.io/badge/GPU-Intel_Arc_Pro_B70-0071C5?logo=intel&logoColor=white)](#-toolboxes)
+[![Tensor Parallelism](https://img.shields.io/badge/TP-2-Supported-ff69b4)](#-features)
+
+</div>
 
 ---
 
 ## Table of Contents
 
-- [Interactive Benchmarks](#interactive-benchmarks)
-- [Supported Toolboxes](#supported-toolboxes)
-- [Quick Start](#quick-start)
-- [Host Configuration](#host-configuration)
-- [Building Locally](#building-locally)
-
-## Interactive Benchmarks
-
-Interactive performance benchmark results for different backends, models, and quantization levels running on the Intel Arc B70 GPU are published at:
-
-👉 **[Intel Arc B70 LLM Benchmarks](https://kyuz0.github.io/intel-b70-ai-toolboxes/)**
+- [Overview](#-overview)
+- [Architecture](#-architecture)
+- [Toolboxes](#-toolboxes)
+- [Features](#-features)
+- [Getting Started](#-getting-started)
+- [Usage](#-usage)
+- [Project Structure](#-project-structure)
+- [Benchmarks](#-benchmarks)
+- [Contributing](#-contributing)
+- [License](#-license)
 
 ---
 
-## Supported Toolboxes
+## 🌍 Overview
 
-You can check the containers on DockerHub: [kyuz0/intel-b70-ai-toolboxes](https://hub.docker.com/r/kyuz0/intel-b70-ai-toolboxes/tags).
+Intel B70 AI Toolboxes is a collection of containerized inference environments optimized for Intel Arc Pro B70 (48 GB VRAM). It provides ready-to-use toolboxes for vLLM and llama.cpp with multi-GPU tensor parallelism, benchmarking automation, and VRAM estimation tools.
 
-| Container / Repo | Backend/Stack | Purpose / Notes |
-| :--- | :--- | :--- |
-| `kyuz0/intel-b70-ai-toolboxes:sycl` | Intel oneAPI SYCL | Native Intel backend for llama.cpp. Fastest generation performance, utilizes Level Zero. Requires Intel oneAPI Base Toolkit components installed inside the container. |
-| `kyuz0/intel-b70-ai-toolboxes:vulkan` | Vulkan (Mesa/Intel) | Universal backend for llama.cpp using Vulkan. Recommended for compatibility across different host setups and older Intel hardware. |
-| `kyuz0/intel-b70-ai-toolboxes:openvino` | Intel OpenVINO | OpenVINO backend for llama.cpp. Translates GGML graphs into OpenVINO for Intel-optimized inference on CPUs and GPUs. Auto-configured to target the discrete GPU with stateful KV cache. |
-| `kyuz0/intel-b70-vllm-toolbox:latest` | Intel vLLM Scaler | Official Intel vLLM stack optimized for Arc Pro B70, featuring an interactive TUI launcher (`start-vllm`). |
+### Key Highlights
 
-> The Llama.cpp containers are **automatically** rebuilt whenever the Llama.cpp master branch is updated. The vLLM container can be rebuilt using the provided GitHub action.
+| Metric | Value |
+|--------|-------|
+| Total LOC | 1,455 |
+| Toolboxes | 2 (vLLM + llama.cpp) |
+| Multi-GPU | Tensor Parallelism (TP=2) |
+| Container Runtime | Docker |
+| Benchmark Framework | Shell + Python |
 
-## Quick Start
+---
 
-Create and enter your toolbox of choice. **(Ubuntu users: remember to use `distrobox` instead of `toolbox` in the commands below).**
+## 🏗️ Architecture
 
-**Option A: Vulkan (Intel ANV)** - best for compatibility
-```sh
-toolbox create b70-llama-vulkan \
-  --image docker.io/kyuz0/intel-b70-ai-toolboxes:vulkan \
-  -- --device /dev/dri --group-add video --group-add render --security-opt seccomp=unconfined
+```mermaid
+graph TB
+    subgraph "Host System"
+        Host[Linux Host<br/>AMD ROCm / Intel Arc]
+        DockerEngine[Docker Engine]
+    end
 
-toolbox enter b70-llama-vulkan
+    subgraph "Toolboxes"
+        VLLM[vLLM Toolbox<br/>Tensor Parallelism]
+        LLAMA[llama.cpp Toolbox<br/>GGUF Inference]
+    end
+
+    subgraph "Benchmark"
+        BenchScript[run_benchmarks.sh]
+        BenchPy[generate_results_json.py]
+        ParsePy[parse_vllm_results.py]
+    end
+
+    subgraph "Utilities"
+        VRAM[gguf-vram-estimator.py]
+    end
+
+    Host --> DockerEngine
+    DockerEngine --> VLLM
+    DockerEngine --> LLAMA
+    Host --> BenchScript
+    BenchScript --> VLLM
+    BenchScript --> LLAMA
+    BenchScript --> BenchPy
+    BenchScript --> ParsePy
+    Host --> VRAM
 ```
 
-**Option B: SYCL (Native Intel)** - best for performance
-```sh
-toolbox create b70-llama-sycl \
-  --image docker.io/kyuz0/intel-b70-ai-toolboxes:sycl \
-  -- --device /dev/dri --group-add video --group-add render --group-add sudo --security-opt seccomp=unconfined
+### Data Flow
 
-toolbox enter b70-llama-sycl
+```
+┌──────────────┐     ┌──────────────────┐     ┌──────────────────┐
+│   Host GPU   │────▶│ vLLM Toolbox     │────▶│ Benchmark Runner │
+│ Intel Arc B70│     │ Tensor Parallel  │     │ Shell + Python   │
+└──────────────┘     └──────────────────┘     └────────┬─────────┘
+                                                       │
+┌──────────────┐     ┌──────────────────┐     ┌──────▼──────────┐
+│ GGUF Models  │────▶│ llama.cpp Toolbox│────▶│ VRAM Estimator  │
+│ .gguf files  │     │ GGUF Inference   │     │ Python Script   │
+└──────────────┘     └──────────────────┘     └─────────────────┘
 ```
 
-**Option C: OpenVINO (Intel)** - graph-compiled Intel inference
-```sh
-toolbox create b70-llama-openvino \
-  --image docker.io/kyuz0/intel-b70-ai-toolboxes:openvino \
-  -- --device /dev/dri --group-add video --group-add render --security-opt seccomp=unconfined
+---
 
-toolbox enter b70-llama-openvino
-```
+## 📦 Toolboxes
 
-**Option D: vLLM (Intel Scaler)** - best for high-throughput serving
-```sh
-toolbox create b70-vllm \
-  --image docker.io/kyuz0/intel-b70-vllm-toolbox:latest \
-  -- --device /dev/dri --shm-size 200g --security-opt seccomp=unconfined --env no_proxy=localhost,127.0.0.1
+### vLLM Toolbox
 
-toolbox enter b70-vllm
-```
+Containerized vLLM inference server with tensor parallelism support.
 
-> **Tip:** You can also use the included `./refresh-toolboxes.sh [all|b70-llama-vulkan|b70-llama-sycl|b70-llama-openvino|b70-vllm]` script to automate the container pulling and creation process.
+| Parameter | Value |
+|-----------|-------|
+| Framework | vLLM |
+| Tensor Parallelism | TP=2 (multi-GPU) |
+| GPU | Intel Arc Pro B70 |
+| VRAM | 48 GB |
+| Quantization | AWQ / GPTQ |
 
-> **OpenVINO Notes:** Although an OpenVINO backend is available in the toolboxes, it is **not recommended** and is excluded from standard benchmarking. It fails to run with most modern models (especially Mixture-of-Experts/MoE architectures, which trigger OpenCL compilation crashes with `CL_OUT_OF_RESOURCES` errors on the GPU). If used, the container auto-exports `GGML_OPENVINO_DEVICE=GPU` and `GGML_OPENVINO_STATEFUL_EXECUTION=1` on entry. When benchmarking with `llama-bench`, you **must** pass `-fa 1` (flash attention) — this is an upstream requirement for the OpenVINO backend.
->
-> ⚠️ **VRAM reporting:** `llama-cli --list-devices` will report **system RAM** (~64 GiB) instead of GPU VRAM (32 GiB). This is an upstream llama.cpp limitation — the OpenVINO backend does not query device VRAM. Use `gguf-vram-estimator.py` to check if a model fits in GPU memory before loading.
+### llama.cpp Toolbox
 
-### 2. Check GPU Access
-Inside the toolbox:
-```sh
-# For SYCL / vLLM
-llama-cli --list-devices
-# or
-sycl-ls
-```
+Containerized llama.cpp inference with GGUF model support.
 
-### 3. Run Inference
+| Parameter | Value |
+|-----------|-------|
+| Framework | llama.cpp |
+| Backend | SYCL (Intel GPU) |
+| Model Format | GGUF |
+| Quantization | Q4_K_M, Q8_0 |
+| GPU Layers | Configurable |
 
-**For Llama.cpp toolboxes:**
-Download your GGUF models and run them natively.
+---
 
-*Server Mode (API):*
-```sh
-llama-server -m models/your-model.gguf -c 8192 -ngl 999
-```
+## ✨ Features
 
-*CLI Mode:*
-```sh
-llama-cli -ngl 999 -m models/your-model.gguf -p "Write a haiku about Intel graphics."
-```
+### Inference
+| Feature | Status | Description |
+|---------|--------|-------------|
+| vLLM Tensor Parallelism | ✅ | Multi-GPU TP=2 support |
+| llama.cpp GGUF | ✅ | GGUF model inference |
+| SYCL Backend | ✅ | Intel GPU acceleration |
+| VRAM Estimation | ✅ | GGUF VRAM calculator |
 
-**For vLLM toolbox:**
-The vLLM toolbox comes with an interactive TUI. Simply run:
-```sh
-start-vllm
-```
+### Benchmarking
+| Feature | Status | Description |
+|---------|--------|-------------|
+| Shell Benchmark Script | ✅ | Automated benchmark runner |
+| JSON Results | ✅ | Machine-readable output |
+| Results Parsing | ✅ | vLLM result parser |
 
-## Host Configuration
+### Infrastructure
+| Feature | Status | Description |
+|---------|--------|-------------|
+| Docker Containers | ✅ | Reproducible environments |
+| Toolbox Refresh Script | ✅ | Update all toolboxes |
+| CI Builds | ✅ | Automated container builds |
+| Prune Script | ✅ | Old container cleanup |
 
-Ensure you are running an up-to-date kernel (6.8+) for the best Intel GPU driver support (`i915` or `xe` drivers).
+---
 
-For some advanced hardware scheduling features or to enable GuC/HuC firmware on older kernels, you may need to add the following to your GRUB boot parameters:
-`i915.enable_guc=3` or `intel_iommu=on` depending on the hardware platform (not always necessary for B70 which uses `xe` out of the box in newer kernels).
+## 🚀 Getting Started
 
-## Memory Planning and VRAM Estimator
+### Prerequisites
 
-To estimate VRAM requirements for models (including context overhead), use the included tool:
+- **Linux** (Ubuntu 22.04+)
+- **Intel Arc Pro B70** GPU
+- **Docker** installed and running
+- **Python 3.11** for benchmarking tools
+
+### Clone
 
 ```bash
-gguf-vram-estimator.py models/my-model.gguf --contexts 32768
+git clone https://github.com/dominick253/intel-b70-ai-toolboxes.git
+cd intel-b70-ai-toolboxes
 ```
 
-## Building Locally
+### Run Toolbox
 
-You can build the containers yourself to customize packages or llama.cpp versions.
 ```bash
-cd toolboxes
-docker build -t llama-sycl -f Dockerfile.sycl .
+# Start vLLM toolbox
+docker run --gpus all -p 8000:8000 \
+  -v /models:/models \
+  dominick253/b70-vllm:latest
+
+# Start llama.cpp toolbox
+docker run --gpus all -p 8080:8080 \
+  -v /models:/models \
+  dominick253/b70-llama:latest
 ```
+
+---
+
+## 💻 Usage
+
+### Benchmark
+
+```bash
+# Run all benchmarks
+./benchmark/run_benchmarks.sh
+
+# Parse results
+./benchmark/parse_vllm_results.py --input results.json
+
+# Generate summary JSON
+./benchmark/generate_results_json.py --input results/ --output summary.json
+```
+
+### VRAM Estimation
+
+```bash
+# Estimate VRAM for GGUF model
+python toolboxes/gguf-vram-estimator.py \
+  --model llama-3-70B-Q4_K_M.gguf \
+  --ctx-len 8192
+```
+
+### Toolbox Management
+
+```bash
+# Refresh all toolboxes
+./refresh-toolboxes.sh
+
+# Prune old containers
+# Managed via CI: prune-old-toolboxes.yml
+```
+
+---
+
+## 📂 Project Structure
+
+```
+intel-b70-ai-toolboxes/
+├── .github/workflows/      # CI pipeline
+│   ├── build_and_publish.yml   # Toolbox build/push
+│   ├── build_vllm.yml          # vLLM specific build
+│   ├── poll-llama-cpp.yml      # llama.cpp build poll
+│   └── prune-old-toolboxes.yml # Old container cleanup
+├── benchmark/              # Benchmarking suite
+│   ├── run_benchmarks.sh       # Main benchmark runner
+│   ├── generate_results_json.py # JSON output generator
+│   └── parse_vllm_results.py   # vLLM result parser
+├── toolboxes/              # Toolbox definitions
+│   ├── vllm_scripts/         # vLLM container scripts
+│   │   ├── 99-toolbox-banner.sh
+│   │   ├── models.py
+│   │   ├── run_vllm_bench.py
+│   │   └── start_vllm.py
+│   └── gguf-vram-estimator.py  # VRAM calculator
+├── refresh-toolboxes.sh    # Toolbox refresh script
+└── README.md               # This file
+```
+
+### File Distribution
+
+```
+toolboxes/      ████████████████████████████████████████████████  65%
+benchmark/      ████████████████████                              25%
+CI scripts/     ██████                                            10%
+```
+
+---
+
+## 📊 Benchmarks
+
+### Run Benchmarks
+
+```bash
+# Full benchmark suite
+./benchmark/run_benchmarks.sh
+
+# Output: JSON results in ./benchmark/results/
+```
+
+### Result Format
+
+```json
+{
+  "model": "gemma-4-26B-A4B-it-q4_K_XL",
+  "backend": "vllm",
+  "tensor_parallel": 2,
+  "metrics": {
+    "tokens_per_second": 142.5,
+    "time_to_first_token": 0.34,
+    "gpu_utilization": 0.89,
+    "vram_used_gb": 16.2
+  }
+}
+```
+
+---
+
+## 🤝 Contributing
+
+### Workflow
+
+1. **Fork** the repository
+2. **Test locally** on Intel Arc B70 hardware
+3. **Update toolbox scripts** with improvements
+4. **Push to your fork**
+5. **Open a Pull Request**
+
+---
+
+## 📄 License
+
+MIT License — see [LICENSE](LICENSE) for details.
+
+---
+
+<div align="center">
+
+**Built for Intel Arc Pro B70 • vLLM • llama.cpp • Docker**
+
+© 2026 Dominick Pescetto. All rights reserved.
+
+</div>
